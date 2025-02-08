@@ -1,5 +1,7 @@
 const Media = require("../models/Media");
 const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
+const fs = require("fs");
 
 // Cloudinary Configuration
 cloudinary.config({
@@ -8,43 +10,61 @@ cloudinary.config({
   api_secret: process.env.CLOUD_API_SECRET,
 });
 
-exports.uploadMedia = async (req, res) => {
-  try {
-    console.log("Incoming Request Body:", req.body);
-    console.log("Incoming Files:", req.files);
+// Multer Configuration for File Upload
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/"); // Temporary storage before uploading to Cloudinary
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
 
-    // Check if a file is uploaded
-    if (!req.files || !req.files.media) {
+const upload = multer({ storage }).single("media");
+
+// Upload Media Controller
+exports.uploadMedia = async (req, res) => {
+  upload(req, res, async (err) => {
+    if (err) {
+      return res.status(500).json({ message: "Multer Error", error: err });
+    }
+
+    if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const { title, type } = req.body;
-    const file = req.files.media;
+    try {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        resource_type: "auto",
+      });
 
-    console.log("Uploading to Cloudinary...");
+      // Save to Database
+      const media = new Media({
+        title: req.body.title,
+        url: result.secure_url,
+        type: req.body.type,
+        uploadedBy: req.user.id,
+      });
 
-    const result = await cloudinary.uploader.upload(file.tempFilePath, {
-      resource_type: "auto",
-    });
+      await media.save();
 
-    console.log("Cloudinary Upload Result:", result);
+      // Delete temp file after uploading
+      fs.unlinkSync(req.file.path);
 
-    // Save media in MongoDB
-    const media = new Media({
-      title,
-      url: result.secure_url,
-      type,
-      uploadedBy: req.user.id,
-    });
-
-    await media.save();
-
-    res.json({
-      message: "Media uploaded successfully",
-      mediaUrl: result.secure_url,
-    });
-  } catch (error) {
-    console.error("Upload Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
+      res.json({ message: "File uploaded successfully", media });
+    } catch (error) {
+      res.status(500).json({ message: "Cloudinary upload error", error });
+    }
+  });
 };
+
+
+exports.getMedia = async (req, res) => {
+  try {
+    const media = await Media.find({ uploadedBy: req.user.id });
+    res.json({ message: "Media retrieved successfully", media });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+}

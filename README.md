@@ -49,7 +49,7 @@ Once the backend server is running, you can access the API at:
 ## Tech Stack
 
 - **Backend:** Node.js, Express
-- **Media Storage:** Cloudinary
+- **Media Storage:** Cloudinary, Multer
 - **Database:** MongoDB with Mongoose ORM
 - **Authentication:** JSON Web Tokens (JWT)
 
